@@ -7,7 +7,7 @@
     "build": "node node_modules/next/dist/bin/next build",
     "start": "node node_modules/next/dist/bin/next start",
     "check-db": "node scripts/check-db.mjs",
-    "vercel-build": "npm rebuild better-sqlite3 --build-from-source && node scripts/check-db.mjs && node node_modules/next/dist/bin/next build",
+    "vercel-build": "npm rebuild better-sqlite3 && node scripts/check-db.mjs && node node_modules/next/dist/bin/next build",
     "lint": "eslint",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "drizzle-kit migrate",
