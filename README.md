@@ -1,36 +1,74 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Dad's Recs
+
+A personal film recommendation site built around a Letterboxd viewing history. Search, browse, and discover what Dad thought about any film he's seen.
 
 ## Getting Started
 
-First, run the development server:
+Install dependencies:
+
+```bash
+npm install
+```
+
+Run the development server:
 
 ```bash
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Open [http://localhost:3000](http://localhost:3000) to view the site.
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+## Updating the Data
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+When Dad exports new data from Letterboxd, follow these steps to ingest it into the database.
 
-## Learn More
+### 1. Export from Letterboxd
 
-To learn more about Next.js, take a look at the following resources:
+Go to **letterboxd.com → Settings → Import & Export → Export your data**. Download and unzip the export into `scripts/data/`.
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+### 2. Install Python dependencies (first time only)
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+```bash
+pip install -r scripts/requirements.txt
+```
 
-## Deploy on Vercel
+### 3. Run the ETL pipeline
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+Run ingestion and enrichment together:
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+```bash
+make run-etl
+```
+
+Or run each step individually:
+
+```bash
+make run-ingestion   # Parse Letterboxd CSVs → populate SQLite
+make run-enrichment  # Fetch posters, cast, genres from TMDB
+make run-lists       # Ingest Letterboxd list CSVs from scripts/data/lists/
+```
+
+**Ingestion** auto-detects the latest export folder in `scripts/data/`. It is idempotent — safe to re-run.
+
+**Enrichment** skips already-enriched films and resumes from where it left off if interrupted. Requires `TMDB_API_KEY` in `.env.local`.
+
+### 4. Redeploy
+
+The SQLite database is bundled at build time. After updating the data, push to git and Vercel will pick up the new data on the next deploy.
+
+## Project Structure
+
+```
+dads-recs/
+├── scripts/              # Python data pipeline
+│   ├── ingest_letterboxd.py
+│   ├── enrich_tmdb.py
+│   └── data/             # Place Letterboxd CSV exports here
+├── src/
+│   ├── app/              # Next.js App Router (pages + API routes)
+│   ├── components/       # React components
+│   └── lib/              # DB client, schema, utilities
+├── drizzle/              # DB migrations
+├── dads-recs.db          # SQLite database
+└── Makefile              # ETL shortcuts
+```

@@ -39,3 +39,12 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# project-specific
+scripts/data/*.csv
+__pycache__/
+*.pyc
+
+# Claude files
+CLAUDE.md
+LISTS_FEATURE.md

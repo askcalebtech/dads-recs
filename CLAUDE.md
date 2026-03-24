@@ -271,3 +271,189 @@ NEXT_PUBLIC_TMDB_IMAGE_BASE=https://image.tmdb.org/t/p  # For poster URLs
 10. **About page**: Simple info page
 11. **Polish**: Responsive design, loading states, error handling, dark theme refinement
 12. **Deploy to Vercel**
+
+---
+
+## Lists Feature
+
+### Overview
+
+Dad's Recs now includes a curated lists page. These are imported from Letterboxd list CSV exports and displayed as visual, clickable tiles — similar to how Letterboxd displays lists on a user's profile.
+
+### Data Source
+
+Letterboxd list CSVs are exported separately from the main diary/ratings export. Each list CSV contains at minimum:
+- Position (integer — the rank)
+- Name (film title)
+- Year (release year)
+- Letterboxd URI
+
+The films in these lists should already exist in the `films` table from the main ingestion pipeline. The list data just tracks membership and ranking.
+
+### Lists to Support
+
+**Yearly Rankings** (dynamic — pattern-matched):
+- `movies-of-2010-ranked.csv` through `movies-of-2026-ranked.csv`
+- New years will be added going forward. The system should auto-detect any file matching the pattern `movies-of-YYYY-ranked.csv`.
+
+**Franchise Rankings**:
+- `mcu-ranked.csv`
+- `star-wars-ranked.csv`
+- `alien-ranked.csv`
+- `predator-ranked.csv`
+- `dc-ranked.csv`
+- `spider-man-ranked.csv`
+- `pixar-ranked.csv`
+- `mission-impossible-ranked.csv`
+
+**Director Rankings**:
+- `christopher-nolan-ranked.csv`
+- `denis-villeneuve-ranked.csv`
+- `tarantino-ranked.csv`
+- `edgar-wright-ranked.csv`
+- `david-fincher-ranked.csv`
+
+**Other**:
+- `31-years-31-movies.csv` — Title/count changes yearly (e.g., "32 Years 32 Movies" next year). Store the display name from the list metadata, not the filename.
+
+### Data Model Addition
+
+**lists**
+- list_id (PK, integer autoincrement)
+- slug (text, unique, not null) — URL-friendly identifier, derived from filename (e.g., "mcu-ranked", "movies-of-2024-ranked")
+- display_name (text, not null) — human-readable name (e.g., "MCU Ranked", "Movies of 2024, Ranked")
+- description (text, nullable) — optional list description from Letterboxd
+- category (text, not null) — one of: "yearly", "franchise", "director", "other"
+- sort_order (integer) — controls display order within category
+- film_count (integer) — total films in the list
+- created_at (timestamp)
+- updated_at (timestamp)
+
+**list_films**
+- list_id (FK → lists)
+- film_id (FK → films)
+- position (integer, not null) — rank within the list (1 = top)
+- Composite PK: (list_id, film_id)
+
+Index on: list_films(list_id, position) for ordered retrieval.
+
+### Display Name Derivation
+
+The ingestion script should derive `display_name` from the filename using these rules:
+- `movies-of-YYYY-ranked.csv` → "Movies of YYYY, Ranked"
+- `mcu-ranked.csv` → "MCU Ranked"
+- `star-wars-ranked.csv` → "Star Wars Ranked"
+- `31-years-31-movies.csv` → "31 Years 31 Movies"
+- General pattern: replace hyphens with spaces, title-case, drop `.csv`
+- Allow manual override via an optional `list_metadata.json` file in `scripts/data/lists/` for custom display names or descriptions.
+
+### Python Script Addition
+
+**scripts/ingest_lists.py**
+- Reads all CSV files from `scripts/data/lists/`
+- Auto-categorizes based on filename patterns:
+  - Matches `movies-of-\d{4}-ranked` → category "yearly"
+  - Matches known franchise slugs → category "franchise"
+  - Matches known director slugs → category "director"
+  - Everything else → category "other"
+- For each list CSV:
+  - Creates or updates the list record
+  - Matches each film to the `films` table by title + year (or Letterboxd URI if available)
+  - Inserts list_films with position
+- Logs warnings for any films that can't be matched (they may not be in the main watch history)
+- Idempotent: safe to re-run
+- Run with: `python scripts/ingest_lists.py`
+
+Films that appear in lists but NOT in the main watch history should still be handled. The script should:
+1. First try to match by Letterboxd URI
+2. Then try title + year match
+3. If no match, create a stub entry in the films table (title + year only, flagged for TMDB enrichment)
+
+### Page & Routes
+
+#### /lists
+- Page title: "Dad's Lists"
+- Lists displayed as a grid of clickable tiles, grouped by category
+- Category sections in order: Yearly Rankings, Franchise Rankings, Director Rankings, Other
+- Yearly rankings should be sorted by year descending (most recent first)
+- Other categories sorted by the `sort_order` field
+
+**Tile design:**
+- Each tile shows:
+  - The list display_name
+  - Film count (e.g., "24 films")
+  - A 2×2 grid of the first 4 film posters as a visual preview
+- If fewer than 4 films, fill remaining slots with a dark placeholder
+- Tiles link to `/lists/[slug]`
+- Hover effect: subtle scale or brightness shift
+
+#### /lists/[slug]
+- Full list view
+- List display_name as page title
+- Description (if exists) below title
+- Films displayed in ranked order (position 1 at top)
+- Each film row/card shows: rank number, poster, title, year, Dad's rating (if rated), genres
+- Clicking a film goes to `/film/[id]`
+- Consider a toggle between "list view" (compact, numbered) and "grid view" (poster cards)
+
+### API Routes
+
+**GET /api/lists**
+- Returns all lists with their first 4 films (for tile previews)
+- Grouped by category
+- Include poster_path for preview films
+
+**GET /api/lists/[slug]**
+- Returns full list detail with all films in position order
+- Include film metadata: title, year, poster_path, rating, genres, runtime
+
+### UI Notes
+
+- List tiles should match the dark cinema theme
+- The 2×2 poster preview grid is the primary visual element of each tile — make it prominent
+- On mobile, tiles should be full-width or 2-column
+- The /lists page should feel like browsing a collection, not reading a table
+- Yearly rankings section could optionally display as a horizontal scrollable row instead of a grid, since there will be many of them (17+ and growing)
+
+### File Structure Addition
+
+```
+scripts/
+├── data/
+│   └── lists/                    # Place Letterboxd list CSV exports here
+│       ├── movies-of-2024-ranked.csv
+│       ├── mcu-ranked.csv
+│       ├── ...
+│       └── list_metadata.json    # Optional: custom display names/descriptions
+├── ingest_lists.py
+```
+
+```
+src/
+├── app/
+│   ├── lists/
+│   │   ├── page.tsx              # Lists overview with tiles
+│   │   └── [slug]/
+│   │       └── page.tsx          # Individual list view
+│   ├── api/
+│   │   └── lists/
+│   │       ├── route.ts          # GET all lists with previews
+│   │       └── [slug]/
+│   │           └── route.ts      # GET single list detail
+├── components/
+│   └── lists/                    # List tile, list grid, list detail components
+```
+
+### Implementation Order (for this feature)
+
+1. Add `lists` and `list_films` tables to the Drizzle schema + run migration
+2. Build `ingest_lists.py` script
+3. Build API routes: /api/lists and /api/lists/[slug]
+4. Build /lists page with tile grid
+5. Build /lists/[slug] detail page
+6. Add "Lists" link to site navigation
+7. Test with actual Letterboxd list exports
+
+### Navigation Update
+
+Add "Lists" to the site header navigation, between "Search" and "Analytics" (or wherever feels natural).
