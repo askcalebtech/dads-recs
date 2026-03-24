@@ -45,6 +45,10 @@ scripts/data/*.csv
 __pycache__/
 *.pyc
 
+# SQLite WAL files (only commit the clean .db)
+*.db-shm
+*.db-wal
+
 # Claude files
 CLAUDE.md
 LISTS_FEATURE.md
